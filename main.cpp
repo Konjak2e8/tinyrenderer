@@ -71,7 +71,7 @@ void triangle(std::vector<Vec2i> &pts, TGAImage &image, const TGAColor &color)
         {
             Vec2i p(i, j);
             Vec3f bary = barycentric(pts, p);
-            if (bary.x <= 0 || bary.y <= 0 || bary.z <= 0)
+            if (bary.x < -0.1 || bary.y < -0.1 || bary.z < -0.1)
                 continue;
             image.set(p.x, p.y, color);
         }
@@ -91,16 +91,22 @@ int main(int argc, char **argv)
         model = new Model("obj/african_head.obj");
     }
 
+    Vec3f light_dir(0, 0, -1); // light direction
     for (int i = 0; i < model->nfaces(); i++)
     {
         std::vector<int> face = model->face(i);
-        std::vector<Vec2i> screenCoords;
+        std::vector<Vec2i> screenCoords(3);
+        std::vector<Vec3f> worldCoords(3);
         for (int j = 0; j < 3; j++)
         {
-            Vec3f worldCoord = model->vert(face[j]);
-            screenCoords.emplace_back(Vec2i((worldCoord.x + 1.) * width / 2., (worldCoord.y + 1.) * height / 2.)); // 转换为屏幕坐标
+            worldCoords[j] = model->vert(face[j]);
+            screenCoords[j] = Vec2i((worldCoords[j].x + 1.) * width / 2., (worldCoords[j].y + 1.) * height / 2.); // transform to screen coordinates
         }
-        triangle(screenCoords, image, TGAColor(rand() % 255, rand() % 255, rand() % 255, 255));
+        Vec3f normal = (worldCoords[2] - worldCoords[0]) ^ (worldCoords[1] - worldCoords[0]); // triangle normal vector
+        normal.normalize();
+        float intensity = normal * light_dir;
+        if (intensity > 0) // backface culling
+            triangle(screenCoords, image, TGAColor(intensity * 255, intensity * 255, intensity * 255, 255));
     }
 
     image.flip_vertically(); // have the origin at the left bottom corner of the image
