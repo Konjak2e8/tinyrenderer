@@ -40,40 +40,56 @@ void line(Vec2i t0, Vec2i t1, TGAImage &image, const TGAColor &color)
 }
 
 // 求三角形重心坐标
-Vec3f barycentric(std::vector<Vec2i> &pts, Vec2i P)
+Vec3f barycentric(std::vector<Vec3f> &pts, Vec3f P)
 {
-    int xa = pts[0].x, ya = pts[0].y, xb = pts[1].x, yb = pts[1].y, xc = pts[2].x, yc = pts[2].y;
-    int x = P.x, y = P.y;
+    float xa = pts[0].x, ya = pts[0].y, xb = pts[1].x, yb = pts[1].y, xc = pts[2].x, yc = pts[2].y;
+    float x = P.x, y = P.y;
 
-    float gamma = static_cast<float>((ya - yb) * x + (xb - xa) * y + xa * yb - xb * ya) / static_cast<float>((ya - yb) * xc + (xb - xa) * yc + xa * yb - xb * ya);
-    float beta = static_cast<float>((ya - yc) * x + (xc - xa) * y + xa * yc - xc * ya) / static_cast<float>((ya - yc) * xb + (xc - xa) * yb + xa * yc - xc * ya);
-    float alpha = 1 - gamma - beta;
+    float gamma = ((ya - yb) * x + (xb - xa) * y + xa * yb - xb * ya) / ((ya - yb) * xc + (xb - xa) * yc + xa * yb - xb * ya);
+    float beta = ((ya - yc) * x + (xc - xa) * y + xa * yc - xc * ya) / ((ya - yc) * xb + (xc - xa) * yb + xa * yc - xc * ya);
+    float alpha = 1. - gamma - beta;
 
     return Vec3f(alpha, beta, gamma);
 }
 
-void triangle(std::vector<Vec2i> &pts, TGAImage &image, const TGAColor &color)
+Vec3f world2screen(const Vec3f &v)
 {
-    Vec2i bboxMin(image.get_width() - 1, image.get_height() - 1);
-    Vec2i bboxMax(0, 0);
+    return Vec3f(int((v.x + 1.) * width / 2. + .5), int((v.y + 1.) * height / 2. + .5), v.z);
+}
 
-    for (auto pt : pts)
-    {
-        bboxMin.x = std::min(bboxMin.x, pt.x);
-        bboxMin.y = std::min(bboxMin.y, pt.y);
-        bboxMax.x = std::max(bboxMax.x, pt.x);
-        bboxMax.y = std::max(bboxMax.y, pt.y);
-    }
+template <class T>
+T min(T x, T y, T z)
+{
+    return std::min(std::min(x, y), z);
+}
 
-    for (int i = bboxMin.x; i <= bboxMax.x; i++)
+template <class T>
+T max(T x, T y, T z)
+{
+    return std::max(std::max(x, y), z);
+}
+
+void triangle(std::vector<Vec3f> &pts, float *zBuffer, TGAImage &image, const TGAColor &color)
+{
+    int min_x = std::floor(min(pts[0].x, pts[1].x, pts[2].x));
+    int max_x = std::ceil(max(pts[0].x, pts[1].x, pts[2].x));
+    int min_y = std::floor(min(pts[0].y, pts[1].y, pts[2].y));
+    int max_y = std::ceil(max(pts[0].y, pts[1].y, pts[2].y));
+
+    for (int i = min_x; i <= max_x; i++)
     {
-        for (int j = bboxMin.y; j <= bboxMax.y; j++)
+        for (int j = min_y; j <= max_y; j++)
         {
-            Vec2i p(i, j);
-            Vec3f bary = barycentric(pts, p);
-            if (bary.x < -0.1 || bary.y < -0.1 || bary.z < -0.1)
+            Vec3f p(i, j, 0);
+            Vec3f baryCoord = barycentric(pts, p);
+            if (baryCoord.x < -0.1 || baryCoord.y < -0.1 || baryCoord.z < -0.1)
                 continue;
-            image.set(p.x, p.y, color);
+            float z_interpolation = baryCoord.x * pts[0].z + baryCoord.y * pts[1].z + baryCoord.z * pts[2].z;
+            if (z_interpolation > zBuffer[static_cast<int>(p.x + p.y * width)])
+            {
+                zBuffer[static_cast<int>(i + j * width)] = z_interpolation;
+                image.set(p.x, p.y, color);
+            }
         }
     }
 }
@@ -91,22 +107,29 @@ int main(int argc, char **argv)
         model = new Model("obj/african_head.obj");
     }
 
+    float *zBuffer = new float[width * height];
+
+    for (int i = 0; i < width * height; i++)
+    {
+        zBuffer[i] = -std::numeric_limits<float>::max();
+    }
+
     Vec3f light_dir(0, 0, -1); // light direction
     for (int i = 0; i < model->nfaces(); i++)
     {
         std::vector<int> face = model->face(i);
-        std::vector<Vec2i> screenCoords(3);
+        std::vector<Vec3f> screenCoords(3);
         std::vector<Vec3f> worldCoords(3);
         for (int j = 0; j < 3; j++)
         {
             worldCoords[j] = model->vert(face[j]);
-            screenCoords[j] = Vec2i((worldCoords[j].x + 1.) * width / 2., (worldCoords[j].y + 1.) * height / 2.); // transform to screen coordinates
+            screenCoords[j] = world2screen(worldCoords[j]); // transform to screen coordinates
         }
         Vec3f normal = (worldCoords[2] - worldCoords[0]) ^ (worldCoords[1] - worldCoords[0]); // triangle normal vector
         normal.normalize();
         float intensity = normal * light_dir;
         if (intensity > 0) // backface culling
-            triangle(screenCoords, image, TGAColor(intensity * 255, intensity * 255, intensity * 255, 255));
+            triangle(screenCoords, zBuffer, image, TGAColor(intensity * 255, intensity * 255, intensity * 255, 255));
     }
 
     image.flip_vertically(); // have the origin at the left bottom corner of the image
