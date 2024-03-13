@@ -4,6 +4,7 @@
 
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor red = TGAColor(255, 0, 0, 255);
+const TGAColor green = TGAColor(0, 255, 0, 255);
 const int width = 800, height = 800;
 Model *model = NULL;
 
@@ -23,7 +24,6 @@ void line(Vec2i t0, Vec2i t1, TGAImage &image, const TGAColor &color)
     int dx = x1 - x0, dy = y1 - y0;
     int derror2 = std::abs(dy) * 2, error2 = 0, y = y0;
 
-    float div = 1.0 / static_cast<float>(x1 - x0);
     for (int x = x0; x <= x1; x++)
     {
         if (steep)
@@ -39,8 +39,49 @@ void line(Vec2i t0, Vec2i t1, TGAImage &image, const TGAColor &color)
     }
 }
 
+// 求三角形重心坐标
+Vec3f barycentric(std::vector<Vec2i> &pts, Vec2i P)
+{
+    int xa = pts[0].x, ya = pts[0].y, xb = pts[1].x, yb = pts[1].y, xc = pts[2].x, yc = pts[2].y;
+    int x = P.x, y = P.y;
+
+    float gamma = static_cast<float>((ya - yb) * x + (xb - xa) * y + xa * yb - xb * ya) / static_cast<float>((ya - yb) * xc + (xb - xa) * yc + xa * yb - xb * ya);
+    float beta = static_cast<float>((ya - yc) * x + (xc - xa) * y + xa * yc - xc * ya) / static_cast<float>((ya - yc) * xb + (xc - xa) * yb + xa * yc - xc * ya);
+    float alpha = 1 - gamma - beta;
+
+    return Vec3f(alpha, beta, gamma);
+}
+
+void triangle(std::vector<Vec2i> &pts, TGAImage &image, const TGAColor &color)
+{
+    Vec2i bboxMin(image.get_width() - 1, image.get_height() - 1);
+    Vec2i bboxMax(0, 0);
+
+    for (auto pt : pts)
+    {
+        bboxMin.x = std::min(bboxMin.x, pt.x);
+        bboxMin.y = std::min(bboxMin.y, pt.y);
+        bboxMax.x = std::max(bboxMax.x, pt.x);
+        bboxMax.y = std::max(bboxMax.y, pt.y);
+    }
+
+    for (int i = bboxMin.x; i <= bboxMax.x; i++)
+    {
+        for (int j = bboxMin.y; j <= bboxMax.y; j++)
+        {
+            Vec2i p(i, j);
+            Vec3f bary = barycentric(pts, p);
+            if (bary.x <= 0 || bary.y <= 0 || bary.z <= 0)
+                continue;
+            image.set(p.x, p.y, color);
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
+    TGAImage image(width, height, TGAImage::RGB);
+
     if (2 == argc)
     {
         model = new Model(argv[1]);
@@ -50,21 +91,18 @@ int main(int argc, char **argv)
         model = new Model("obj/african_head.obj");
     }
 
-    TGAImage image(width, height, TGAImage::RGB);
     for (int i = 0; i < model->nfaces(); i++)
     {
         std::vector<int> face = model->face(i);
+        std::vector<Vec2i> screenCoords;
         for (int j = 0; j < 3; j++)
         {
-            Vec3f v0 = model->vert(face[j]);
-            Vec3f v1 = model->vert(face[(j + 1) % 3]);
-            int x0 = (v0.x + 1.) * width / 2.;
-            int y0 = (v0.y + 1.) * height / 2.;
-            int x1 = (v1.x + 1.) * width / 2.;
-            int y1 = (v1.y + 1.) * height / 2.;
-            line(Vec2i(x0, y0), Vec2i(x1, y1), image, white);
+            Vec3f worldCoord = model->vert(face[j]);
+            screenCoords.emplace_back(Vec2i((worldCoord.x + 1.) * width / 2., (worldCoord.y + 1.) * height / 2.)); // 转换为屏幕坐标
         }
+        triangle(screenCoords, image, TGAColor(rand() % 255, rand() % 255, rand() % 255, 255));
     }
+
     image.flip_vertically(); // have the origin at the left bottom corner of the image
     image.write_tga_file("output.tga");
     return 0;
