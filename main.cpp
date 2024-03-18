@@ -40,7 +40,7 @@ void line(Vec2i t0, Vec2i t1, TGAImage &image, const TGAColor &color)
 }
 
 // 求三角形重心坐标
-Vec3f barycentric(std::vector<Vec3f> &pts, Vec3f P)
+Vec3f barycentric(Vec3f *pts, Vec3f P)
 {
     float xa = pts[0].x, ya = pts[0].y, xb = pts[1].x, yb = pts[1].y, xc = pts[2].x, yc = pts[2].y;
     float x = P.x, y = P.y;
@@ -49,7 +49,9 @@ Vec3f barycentric(std::vector<Vec3f> &pts, Vec3f P)
     float beta = ((ya - yc) * x + (xc - xa) * y + xa * yc - xc * ya) / ((ya - yc) * xb + (xc - xa) * yb + xa * yc - xc * ya);
     float alpha = 1. - gamma - beta;
 
-    return Vec3f(alpha, beta, gamma);
+    if (std::abs(gamma) > 1e-2)
+        return Vec3f(alpha, beta, gamma);
+    return Vec3f(-1, 1, 1);
 }
 
 Vec3f world2screen(const Vec3f &v)
@@ -69,7 +71,7 @@ T max(T x, T y, T z)
     return std::max(std::max(x, y), z);
 }
 
-void triangle(std::vector<Vec3f> &pts, float *zBuffer, TGAImage &image, const TGAColor &color)
+void triangle(Vec3f *pts, Vec2i *uvs, float *zBuffer, TGAImage &image, float intensity)
 {
     int min_x = std::floor(min(pts[0].x, pts[1].x, pts[2].x));
     int max_x = std::ceil(max(pts[0].x, pts[1].x, pts[2].x));
@@ -80,15 +82,18 @@ void triangle(std::vector<Vec3f> &pts, float *zBuffer, TGAImage &image, const TG
     {
         for (int j = min_y; j <= max_y; j++)
         {
-            Vec3f p(i, j, 0);
-            Vec3f baryCoord = barycentric(pts, p);
-            if (baryCoord.x < -0.1 || baryCoord.y < -0.1 || baryCoord.z < -0.1)
+            Vec3f P(i, j, 0);
+            Vec2i uvP;
+            Vec3f baryCoord = barycentric(pts, P);
+            if (baryCoord.x < -0.01 || baryCoord.y < -0.01 || baryCoord.z < -0.01)
                 continue;
             float z_interpolation = baryCoord.x * pts[0].z + baryCoord.y * pts[1].z + baryCoord.z * pts[2].z;
-            if (z_interpolation > zBuffer[static_cast<int>(p.x + p.y * width)])
+            uvP = uvs[0] * baryCoord.x + uvs[1] * baryCoord.y + uvs[2] * baryCoord.z;
+            if (z_interpolation > zBuffer[static_cast<int>(P.x + P.y * width)])
             {
                 zBuffer[static_cast<int>(i + j * width)] = z_interpolation;
-                image.set(p.x, p.y, color);
+                TGAColor color = model->diffuse(uvP);
+                image.set(P.x, P.y, TGAColor(color.r * intensity, color.g * intensity, color.b * intensity, 255));
             }
         }
     }
@@ -118,8 +123,8 @@ int main(int argc, char **argv)
     for (int i = 0; i < model->nfaces(); i++)
     {
         std::vector<int> face = model->face(i);
-        std::vector<Vec3f> screenCoords(3);
-        std::vector<Vec3f> worldCoords(3);
+        Vec3f screenCoords[3];
+        Vec3f worldCoords[3];
         for (int j = 0; j < 3; j++)
         {
             worldCoords[j] = model->vert(face[j]);
@@ -129,7 +134,12 @@ int main(int argc, char **argv)
         normal.normalize();
         float intensity = normal * light_dir;
         if (intensity > 0) // backface culling
-            triangle(screenCoords, zBuffer, image, TGAColor(intensity * 255, intensity * 255, intensity * 255, 255));
+        {
+            Vec2i uv[3];
+            for (int j = 0; j < 3; j++)
+                uv[j] = model->uvmap(i, j);
+            triangle(screenCoords, uv, zBuffer, image, intensity);
+        }
     }
 
     image.flip_vertically(); // have the origin at the left bottom corner of the image

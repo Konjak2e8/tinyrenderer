@@ -26,6 +26,13 @@ struct Vec2
     inline Vec2<t> operator*(float f) const { return Vec2<t>(u * f, v * f); }
     template <class>
     friend std::ostream &operator<<(std::ostream &s, Vec2<t> &v);
+    inline t &operator[](const int idx)
+    {
+        if (idx <= 0)
+            return x;
+        else
+            return y;
+    }
 };
 
 template <class t>
@@ -58,6 +65,15 @@ struct Vec3
     }
     template <class>
     friend std::ostream &operator<<(std::ostream &s, Vec3<t> &v);
+    inline t &operator[](const int idx)
+    {
+        if (idx <= 0)
+            return x;
+        else if (idx == 1)
+            return y;
+        else
+            return z;
+    }
 };
 
 typedef Vec2<float> Vec2f;
