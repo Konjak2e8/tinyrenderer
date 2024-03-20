@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "tgaimage.h"
 #include "geometry.h"
 #include "model.h"
@@ -49,9 +51,7 @@ Vec3f barycentric(Vec3f *pts, Vec3f P)
     float beta = ((ya - yc) * x + (xc - xa) * y + xa * yc - xc * ya) / ((ya - yc) * xb + (xc - xa) * yb + xa * yc - xc * ya);
     float alpha = 1. - gamma - beta;
 
-    if (std::abs(gamma) > 1e-2)
-        return Vec3f(alpha, beta, gamma);
-    return Vec3f(-1, 1, 1);
+    return Vec3f(alpha, beta, gamma);
 }
 
 Vec3f world2screen(const Vec3f &v)
@@ -59,24 +59,17 @@ Vec3f world2screen(const Vec3f &v)
     return Vec3f(int((v.x + 1.) * width / 2. + .5), int((v.y + 1.) * height / 2. + .5), v.z);
 }
 
-template <class T>
-T min(T x, T y, T z)
-{
-    return std::min(std::min(x, y), z);
-}
-
-template <class T>
-T max(T x, T y, T z)
-{
-    return std::max(std::max(x, y), z);
-}
-
 void triangle(Vec3f *pts, Vec2i *uvs, float *zBuffer, TGAImage &image, float intensity)
 {
-    int min_x = std::floor(min(pts[0].x, pts[1].x, pts[2].x));
-    int max_x = std::ceil(max(pts[0].x, pts[1].x, pts[2].x));
-    int min_y = std::floor(min(pts[0].y, pts[1].y, pts[2].y));
-    int max_y = std::ceil(max(pts[0].y, pts[1].y, pts[2].y));
+    float minx = std::min({pts[0].x, pts[1].x, pts[2].x});
+    float maxx = std::max({pts[0].x, pts[1].x, pts[2].x});
+    float miny = std::min({pts[0].y, pts[1].y, pts[2].y});
+    float maxy = std::max({pts[0].y, pts[1].y, pts[2].y});
+
+    int min_x = (int)std::floor(minx);
+    int max_x = (int)std::ceil(maxx);
+    int min_y = (int)std::floor(miny);
+    int max_y = (int)std::ceil(maxy);
 
     for (int i = min_x; i <= max_x; i++)
     {
@@ -109,7 +102,7 @@ int main(int argc, char **argv)
     }
     else
     {
-        model = new Model("obj/african_head.obj");
+        model = new Model("obj/african_head/african_head.obj");
     }
 
     float *zBuffer = new float[width * height];
@@ -119,25 +112,25 @@ int main(int argc, char **argv)
         zBuffer[i] = -std::numeric_limits<float>::max();
     }
 
-    Vec3f light_dir(0, 0, -1); // light direction
+    Vec3f light_dir(0, 0, -1);
     for (int i = 0; i < model->nfaces(); i++)
     {
         std::vector<int> face = model->face(i);
-        Vec3f screenCoords[3];
-        Vec3f worldCoords[3];
+        Vec3f screenCoords[3], worldCoords[3];
         for (int j = 0; j < 3; j++)
         {
             worldCoords[j] = model->vert(face[j]);
-            screenCoords[j] = world2screen(worldCoords[j]); // transform to screen coordinates
+            screenCoords[j] = world2screen(worldCoords[j]);
         }
-        Vec3f normal = (worldCoords[2] - worldCoords[0]) ^ (worldCoords[1] - worldCoords[0]); // triangle normal vector
+
+        Vec3f normal = (worldCoords[2] - worldCoords[0]) ^ (worldCoords[1] - worldCoords[0]);
         normal.normalize();
         float intensity = normal * light_dir;
-        if (intensity > 0) // backface culling
+        if (intensity > 0)
         {
             Vec2i uv[3];
             for (int j = 0; j < 3; j++)
-                uv[j] = model->uvmap(i, j);
+                uv[j] = model->uv(i, j);
             triangle(screenCoords, uv, zBuffer, image, intensity);
         }
     }
